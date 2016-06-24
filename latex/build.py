@@ -59,12 +59,8 @@ class LatexMkBuilder(LatexBuilder):
         self.pdflatex = pdflatex
 
     @data('source')
-    def build_pdf(self, source, texinputs=[]):
-        with TempDir() as tmpdir,\
-                source.temp_saved(suffix='.latex', dir=tmpdir) as tmp:
-
-            # close temp file, so other processes can access it also on Windows
-            tmp.close()
+    def build_pdf(self, source, texinputs=[], **kwargs):
+        with TempDir() as tmpdir, source.temp_saved(suffix='.latex', dir=tmpdir) as tmp:
 
             base_fn = os.path.splitext(tmp.name)[0]
             output_fn = base_fn + '.pdf'
@@ -72,7 +68,7 @@ class LatexMkBuilder(LatexBuilder):
             latex_cmd = [shlex_quote(self.pdflatex),
                          '-interaction=batchmode',
                          '-halt-on-error',
-                         '-no-shell-escape',
+                         '-shell-escape' if kwargs.get('allow_shell_escape') else '-no-shell-escape',
                          '-file-line-error',
                          '%O',
                          '%S',
@@ -100,7 +96,7 @@ class LatexMkBuilder(LatexBuilder):
             except CalledProcessError as e:
                 raise_from(LatexBuildError(base_fn + '.log'), e)
 
-            return I(open(output_fn, 'rb').read(), encoding=None)
+            return I(open(output_fn, 'rb'), encoding=None)
 
     def is_available(self):
         return bool(which(self.pdflatex)) and bool(which(self.latexmk))
@@ -126,12 +122,9 @@ class PdfLatexBuilder(LatexBuilder):
         self.max_runs = 15
 
     @data('source')
-    def build_pdf(self, source, texinputs=[]):
+    def build_pdf(self, source, texinputs=[], **kwargs):
         with TempDir() as tmpdir,\
                 source.temp_saved(suffix='.latex', dir=tmpdir) as tmp:
-
-            # close temp file, so other processes can access it also on Windows
-            tmp.close()
 
             # calculate output filename
             base_fn = os.path.splitext(tmp.name)[0]
@@ -140,7 +133,7 @@ class PdfLatexBuilder(LatexBuilder):
             args = [self.pdflatex,
                     '-interaction=batchmode',
                     '-halt-on-error',
-                    '-no-shell-escape',
+                    '-shell-escape' if kwargs.get('allow_shell_escape') else '-no-shell-escape',
                     '-file-line-error',
                     tmp.name]
 
@@ -177,7 +170,10 @@ class PdfLatexBuilder(LatexBuilder):
                     'reached.'.format(self.max_runs)
                 )
 
-            return I(open(output_fn, 'rb').read(), encoding=None)
+            # by opening the file, a handle will be kept open, even though the
+            # tempdir gets removed. upon garbage collection, it will disappear,
+            # unless the caller used it somehow
+            return I(open(output_fn, 'rb'), encoding=None)
 
     def is_available(self):
         return bool(which(self.pdflatex))
@@ -189,7 +185,7 @@ PREFERRED_BUILDERS = [
 ]
 
 
-def build_pdf(source, texinputs=[]):
+def build_pdf(source, texinputs=[], **kwargs):
     """Builds a LaTeX source to PDF.
 
     Will automatically instantiate an available builder (or raise a
@@ -203,7 +199,7 @@ def build_pdf(source, texinputs=[]):
         builder = bld_cls()
         if not builder.is_available():
             continue
-        return builder.build_pdf(source, texinputs)
+        return builder.build_pdf(source, texinputs, **kwargs)
     else:
         raise RuntimeError('No available builder could be instantiated. '
                            'Please make sure LaTeX is installed.')
